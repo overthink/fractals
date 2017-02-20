@@ -1,9 +1,5 @@
 type Margin = {top: number; right: number; bottom: number; left: number};
 
-class Vec2 {
-    constructor(readonly x: number, readonly y: number) {}
-}
-
 function disableScrollbars(canvas: HTMLCanvasElement): void {
     // canvas is display:inline(-block?) by default, apparently
     // display:block prevents scrollbars; don't fully get it.
@@ -27,19 +23,6 @@ function viewportSize(): [number, number] {
     const width = Math.max(de.clientWidth, window.innerWidth || 0);
     const height = Math.max(de.clientHeight, window.innerHeight || 0);
     return [width, height];
-}
-
-/**
- * Apply f to args, then take the result of that and apply f to it again. Do
- * this n times.
- */
-function iterate<T>(f: (a: T) => T, args: T, n: number) {
-    let result = args;
-    while (n > 0) {
-        result = f.call(null, result);
-        n--;
-    }
-    return result;
 }
 
 /**
@@ -97,15 +80,24 @@ const enum Colour {
  */
 function drawMandlebrot(
         context: CanvasRenderingContext2D,
-        canvasW: number,
-        canvasH: number,
         scale: number,
         topLeftX: number,
         topLeftY: number): void {
-
+    const start = Date.now();
+    const canvasW = context.canvas.width;
+    const canvasH = context.canvas.height;
     const imageData = context.getImageData(0, 0, canvasW, canvasH);
     const data: Uint8ClampedArray = imageData.data;
     console.log(`Need to draw ${data.length / 4} pixels`);
+
+    // let z[0] = 0
+    // then c is in the set if |z[n]| remains bounded for arbitrarily large n in
+    // z[n+1] = z[n]^2 + c
+
+    // differently, P[c] is a complex polynomial (fn):
+    // P[c](z) = z^2 + c (think of c as x,y coords on a canvas)
+    // c is in the set if the sequence P[c](0), P[c](P[c](0)),
+    // P[c](P[c](P[c](0))), ... remains bounded in absolute value.
 
     for (let i = 0; i < data.length; i += 4) {
         const pixelNum  = i / 4;
@@ -129,15 +121,19 @@ function drawMandlebrot(
 
         data[i + Colour.R] = 0;
         data[i + Colour.G] = 0;
-        data[i + Colour.B] = iteration == maxIterations ? 255 : 0;
+        data[i + Colour.B] = iteration % 255; //iteration == maxIterations ? 255 : 0;
         data[i + Colour.A] = 255;
     }
     context.putImageData(imageData, 0, 0);
+    console.log(`drawMandlebrot() ran in ${Date.now() - start} ms`);
+}
 
+function getMouseCoords(canvas: HTMLCanvasElement, e: MouseEvent): [number, number] {
+    const rect = canvas.getBoundingClientRect();
+    return [e.x - rect.left, e.y - rect.top];
 }
 
 function main(): void {
-    const start = Date.now();
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
     const borderThickness = 1;
     const [canvasW, canvasH] = calcCanvasDims(margin, borderThickness);
@@ -151,18 +147,44 @@ function main(): void {
         throw new Error("Couldn't get 2d drawing context");
     }
 
-    let scale: number = getInitialScale(canvasW, canvasH);
-    drawMandlebrot(
-        context,
-        canvasW,
-        canvasH,
-        scale,
-        // ugliness to centre our view of the complex plane (re [-2.5, 1], im
-        // [-1, 1]) in the canvas
-        -2.5 - (canvasW / scale - (1 - -2.5)) / 2,
-        1 + (canvasH / scale - (1 - -1)) / 2);
+    // "unit" being distance 1 on complex plane
+    let pixelsPerUnit: number = getInitialScale(canvasW, canvasH);
 
-    console.log(`main() ran in ${Date.now() - start} ms`);
+    // ugliness to centre our view of the complex plane (re [-2.5, 1], im
+    // [-1, 1]) in the canvas
+    let topLeftX = -2.5 - (canvasW / pixelsPerUnit - (1 - -2.5)) / 2;
+    let topLeftY = 1 + (canvasH / pixelsPerUnit - (1 - -1)) / 2;
+
+
+    let mouseDownCanvasX = 0;
+    let mouseDownCanvasY = 0;
+
+    const draw = () => {
+        console.log(canvasW, canvasH, pixelsPerUnit, topLeftX, topLeftY);
+        drawMandlebrot(context, pixelsPerUnit, topLeftX, topLeftY);
+    };
+
+    canvas.addEventListener("mousedown", e => {
+        const [x, y] = getMouseCoords(canvas, e);
+        mouseDownCanvasX = x;
+        mouseDownCanvasY = y;
+    });
+
+    canvas.addEventListener("mouseup", e => {
+        const x0 = mouseDownCanvasX / pixelsPerUnit + topLeftX;
+        const y0 = mouseDownCanvasY / -pixelsPerUnit + topLeftY;
+        console.log("clicked down on", x0, y0, "(complex plane coordinates)");
+        topLeftX = x0;
+        topLeftY = y0;
+        // now use the mouseup coordinates to figure out new scale
+        const [x, y] = getMouseCoords(canvas, e);
+        console.log("mouseup", mouseDownCanvasX, mouseDownCanvasY, x, y, pixelsPerUnit, (x - mouseDownCanvasX));
+        pixelsPerUnit = canvasW / ((x - mouseDownCanvasX) / pixelsPerUnit);
+        console.log("new ppu", pixelsPerUnit);
+        draw();
+    });
+
+    draw();
 }
 
 main();
