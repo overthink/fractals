@@ -4,14 +4,9 @@ import Graphics = PIXI.Graphics;
 
 type Margin = {top: number; right: number; bottom: number; left: number};
 
-function cssColourToNum(cssColour: string): number {
-    return parseInt(cssColour.substr(1), 16);
+class Vec2 {
+    constructor(readonly x: number, readonly y: number) {}
 }
-
-const Red = "#d50081";
-const Blue = "#0e73ba";
-const RedHex = cssColourToNum(Red);
-const BlueHex = cssColourToNum(Blue);
 
 function disableScrollbars(canvas: HTMLCanvasElement): void {
     // canvas is display:inline(-block?) by default, apparently
@@ -38,85 +33,6 @@ function viewportSize(): [number, number] {
     return [width, height];
 }
 
-function drawP2Triangle(context: CanvasRenderingContext2D, t: Triangle): void {
-    // Assume this:
-    //      A
-    //     /ϴ\
-    //    /   \
-    //   B_____C
-    const isRed = t.colour == Red;
-
-    if (!isRed) {
-        // stroke BC in the fill colour to avoid seams... gah, lame solution
-        const origStrokeStyle = context.strokeStyle;
-        context.beginPath();
-        context.moveTo(t.b.x, t.b.y);
-        context.lineTo(t.c.x, t.c.y);
-        context.strokeStyle = t.colour;
-        context.stroke();
-        context.strokeStyle = origStrokeStyle;
-    }
-
-    context.beginPath();
-    context.moveTo(t.b.x, t.b.y);
-    context.lineTo(t.a.x, t.a.y);
-    context.lineTo(t.c.x, t.c.y);
-    // background is already red, so no need to re-fill it as red
-    if (!isRed) {
-        context.fillStyle = t.colour;
-        context.fill();
-    }
-    context.stroke();
-}
-
-function drawP2TrianglePixi(g: Graphics, t: Triangle): void {
-    // Assume this:
-    //      A
-    //     /ϴ\
-    //    /   \
-    //   B_____C
-    const isRed = t.colour == Red;
-    if (!isRed) {
-        g.beginFill(BlueHex);
-    }
-    g.moveTo(t.b.x, t.b.y);
-    g.lineTo(t.a.x, t.a.y);
-    g.lineTo(t.c.x, t.c.y);
-    if (!isRed) {
-        g.endFill();
-    }
-}
-
-function deflate(t: Triangle): Triangle[] {
-    const result: Triangle[] = [];
-    if (t.colour == Red) {
-        const ab = t.b.copy().subtract(t.a); // vector from a to b
-        const p = t.a.copy().add(ab.copy().normalize().multiply(ab.magnitude() / Phi));
-        result.push(
-            new Triangle(t.c, p, t.b, Red),
-            new Triangle(p, t.c, t.a, Blue)
-        );
-    } else {
-        const ba = t.a.copy().subtract(t.b); // vector from b to a
-        const bc = t.c.copy().subtract(t.b); // vector from b to c
-        const q = t.b.copy().add(ba.copy().normalize().multiply(ba.magnitude() / Phi));
-        const r = t.b.copy().add(bc.copy().normalize().multiply(bc.magnitude() / Phi));
-        result.push(
-            new Triangle(q, r, t.b, Blue),
-            new Triangle(r, q, t.a, Red),
-            new Triangle(r, t.c, t.a, Blue)
-        );
-    }
-
-    return result;
-}
-
-function deflateMany(ts: Triangle[]): Triangle[] {
-    const result: Triangle[] = [];
-    ts.map(deflate).forEach(ts0 => ts0.forEach(t => result.push(t)));
-    return result;
-}
-
 /**
  * Apply f to args, then take the result of that and apply f to it again. Do
  * this n times.
@@ -128,48 +44,6 @@ function iterate<T>(f: (a: T) => T, args: T, n: number) {
         n--;
     }
     return result;
-}
-
-function generateP2Tiling(width: number, height: number, iterations: number): Triangle[] {
-    const triangles: Triangle[] = [];
-    const centre = new Vec2(width / 2, height / 2);
-    const sideLen = Math.max(width, height) / 2 * 1.4;
-
-    // Generating a "wheel" of triangles about the origin.
-    // start is the point from which we start rotating
-    let start = new Vec2(centre.x, centre.y + sideLen);
-    for (let i = 0; i < 10; ++i) {
-        const b = start.copy();
-        const c = start.copy().rotate(2 * Math.PI / 10, centre);
-        let t = new Triangle(centre, b, c, Red);
-        start = t.c.copy();
-        // mirror every other triangle
-        if (i % 2 == 0) {
-            t = new Triangle(centre, c, b, Red);
-        }
-        triangles.push(t)
-    }
-    return iterate(deflateMany, triangles, iterations);
-}
-
-function drawP2(context: CanvasRenderingContext2D, triangles: Triangle[]): void {
-    // fill canvas with "red" to cut out half the .fill calls later
-    context.fillStyle = Red;
-    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
-    context.strokeStyle = "#333333"; // outline colour
-    for (let t of triangles) {
-        drawP2Triangle(context, t);
-    }
-}
-
-function drawP2Pixi(g: Graphics, canvasW: number, canvasH: number, triangles: Triangle[]): void {
-    g.lineStyle(1, 0x333333, 1);
-    g.beginFill(RedHex, 1); // This way we don't need to fill half the triangles
-    g.drawRect(0, 0, canvasW, canvasH);
-    g.endFill();
-    for (let t of triangles) {
-        drawP2TrianglePixi(g, t);
-    }
 }
 
 /**
@@ -203,69 +77,87 @@ function calcCanvasDims(margin: Margin, borderThickness: number): [number, numbe
     return [canvasW, canvasH];
 }
 
-/** Run the app using HTML5 canvas directly. */
-function mainCanvas(): void {
-    const start = Date.now();
-    const margin = {top: 50, right: 50, bottom: 50, left: 50};
-    const borderThickness = 1;
-    const [canvasW, canvasH] = calcCanvasDims(margin, borderThickness);
-    const container = getCanvasContainer(margin, `${borderThickness}px solid #333`);
-
-    const canvas = createCanvas(canvasW, canvasH);
-    container.appendChild(canvas);
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-        throw new Error("could not get 2d context");
+/**
+ * Return the number of pixels per unit length in the complex plane. This just
+ * ensures our default zoom level includes the entire Mandlebrot set.
+ *
+ * Reminder, Mandelbrot fits in Re (-2.5, 1) and Im (-1, 1).
+ */
+function getInitialScale(canvasW: number, canvasH: number): number {
+    if (canvasW / canvasH >= (3.5 / 2)) {
+        return canvasH / 2;
     }
-
-    const triangles = generateP2Tiling(canvasW, canvasH, 7);
-
-    const centre = new Vec2(canvasW / 2, canvasH / 2);
-
-    const draw = () => {
-        //const start = Date.now();
-        drawP2(context, triangles);
-        triangles.forEach(t => t.rotate(0.01, centre));
-        // console.log(Date.now(), "done animation frame", Date.now() - start);
-        requestAnimationFrame(draw);
-    };
-    requestAnimationFrame(draw);
-
-    console.log(`mainCanvas() ran in ${Date.now() - start} ms - ${triangles.length} triangles`);
+    return canvasW / 3.5;
 }
 
-/** Run the app using Pixi's renderer instead of direct canvas. */
-function mainPixi(): void {
+/**
+ * Draw a view of the Mandlebrot set starting from (topLeftX, topLeftY) on the
+ * complex plane. 'scale' determines the number of pixels per unit of length
+ * on the complex plane.
+ */
+function drawMandlebrot(
+        context: CanvasRenderingContext2D,
+        canvasW: number,
+        canvasH: number,
+        scale: number,
+        topLeftX: number,
+        topLeftY: number): void {
+
+    const imageData = context.getImageData(0, 0, canvasW, canvasH);
+    const data: Uint8ClampedArray = imageData.data;
+    console.log(`Need to draw ${data.length / 4} pixels`);
+
+    for (let i = 0; i < data.length; i += 4) {
+        const pixelNum  = i / 4;
+        const pixelX = pixelNum % canvasW;
+        const pixelY = Math.floor(pixelNum / canvasW);
+        const x0 = pixelX / scale + topLeftX;
+        const y0 = pixelY / scale - topLeftY;
+
+        let x = 0;
+        let y = 0;
+        let iteration = 0;
+        let maxIterations = 10000;
+        while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
+            const xTemp = x * x - y * y + x0;
+            y = 2 * x * y + y0;
+            x = xTemp;
+            iteration++;
+        }
+
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = iteration % 255;
+    }
+    context.putImageData(imageData, 0, 0);
+
+}
+
+function main(): void {
     const start = Date.now();
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
     const borderThickness = 1;
     const [canvasW, canvasH] = calcCanvasDims(margin, borderThickness);
-    const renderer = PIXI.autoDetectRenderer(canvasW, canvasH, {antialias: true});
-    // const renderer = new WebGLRenderer(canvasW, canvasH, {antialias: true});
-    console.log("renderer", renderer);
+    const renderer = new PIXI.CanvasRenderer(canvasW, canvasH);
     const containerElement = getCanvasContainer(margin, `${borderThickness}px solid #333`);
     disableScrollbars(renderer.view);
     containerElement.appendChild(renderer.view);
 
-    const g = new Graphics();
-    const stage = new PIXI.Container();
-    stage.addChild(g);
+    // TODO: going to bypass Pixi, so get rid of it
+    const context = renderer.view.getContext("2d");
+    if (!context) throw new Error("Couldn't get 2d drawing context");
 
-    const triangles = generateP2Tiling(canvasW, canvasH, 7);
-    const centre = new Vec2(canvasW / 2, canvasH / 2);
-    const draw = () => {
-        g.clear();
-        drawP2Pixi(g, canvasW, canvasH, triangles);
-        renderer.render(stage);
-        // stage.rotation += 0.01;
-        triangles.forEach(t => t.rotate(0.01, centre));
-        requestAnimationFrame(draw);
-    };
-    requestAnimationFrame(draw);
+    let pixelsPerUnit: number = getInitialScale(canvasW, canvasH);
+    drawMandlebrot(context, canvasW, canvasH, pixelsPerUnit, -2.5, 1);
 
-    console.log(`mainPixi() ran in ${Date.now() - start} ms - ${triangles.length} triangles`);
+    // const draw = () => {
+    //     g.clear();
+    //     renderer.render(stage);
+    //     requestAnimationFrame(draw);
+    // };
+    // requestAnimationFrame(draw);
+
+    console.log(`main() ran in ${Date.now() - start} ms`);
 }
 
-mainPixi();
-// mainCanvas();
+main();
