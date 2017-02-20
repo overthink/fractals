@@ -1,7 +1,3 @@
-import * as PIXI from "pixi.js";
-import Stage = PIXI.core.Stage;
-import Graphics = PIXI.Graphics;
-
 type Margin = {top: number; right: number; bottom: number; left: number};
 
 class Vec2 {
@@ -90,6 +86,10 @@ function getInitialScale(canvasW: number, canvasH: number): number {
     return canvasW / 3.5;
 }
 
+const enum Colour {
+    R = 0, G, B, A
+}
+
 /**
  * Draw a view of the Mandlebrot set starting from (topLeftX, topLeftY) on the
  * complex plane. 'scale' determines the number of pixels per unit of length
@@ -116,6 +116,8 @@ function drawMandlebrot(
 
         let x = 0;
         let y = 0;
+
+        // any point surviving till maxIterations is in the set
         let iteration = 0;
         let maxIterations = 10000;
         while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
@@ -125,9 +127,10 @@ function drawMandlebrot(
             iteration++;
         }
 
-        data[i] = 0;
-        data[i + 1] = 0;
-        data[i + 2] = iteration % 255;
+        data[i + Colour.R] = 0;
+        data[i + Colour.G] = 0;
+        data[i + Colour.B] = iteration == maxIterations ? 255 : 0;
+        data[i + Colour.A] = 255;
     }
     context.putImageData(imageData, 0, 0);
 
@@ -138,24 +141,26 @@ function main(): void {
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
     const borderThickness = 1;
     const [canvasW, canvasH] = calcCanvasDims(margin, borderThickness);
-    const renderer = new PIXI.CanvasRenderer(canvasW, canvasH);
     const containerElement = getCanvasContainer(margin, `${borderThickness}px solid #333`);
-    disableScrollbars(renderer.view);
-    containerElement.appendChild(renderer.view);
 
-    // TODO: going to bypass Pixi, so get rid of it
-    const context = renderer.view.getContext("2d");
-    if (!context) throw new Error("Couldn't get 2d drawing context");
+    const canvas = createCanvas(canvasW, canvasH);
+    containerElement.appendChild(canvas);
 
-    let pixelsPerUnit: number = getInitialScale(canvasW, canvasH);
-    drawMandlebrot(context, canvasW, canvasH, pixelsPerUnit, -2.5, 1);
+    const context = canvas.getContext("2d");
+    if (!context) {
+        throw new Error("Couldn't get 2d drawing context");
+    }
 
-    // const draw = () => {
-    //     g.clear();
-    //     renderer.render(stage);
-    //     requestAnimationFrame(draw);
-    // };
-    // requestAnimationFrame(draw);
+    let scale: number = getInitialScale(canvasW, canvasH);
+    drawMandlebrot(
+        context,
+        canvasW,
+        canvasH,
+        scale,
+        // ugliness to centre our view of the complex plane (re [-2.5, 1], im
+        // [-1, 1]) in the canvas
+        -2.5 - (canvasW / scale - (1 - -2.5)) / 2,
+        1 + (canvasH / scale - (1 - -1)) / 2);
 
     console.log(`main() ran in ${Date.now() - start} ms`);
 }
