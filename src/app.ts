@@ -108,7 +108,7 @@ function drawMandlebrot(
 
         // any point surviving till maxIterations is in the set
         let iteration = 0;
-        let maxIterations = 1000;
+        let maxIterations = 10000;
         while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
             const xTemp = x * x - y * y + x0;
             y = 2 * x * y + y0;
@@ -127,7 +127,7 @@ function drawMandlebrot(
 
 function getMouseCoords(canvas: HTMLCanvasElement, e: MouseEvent): [number, number] {
     const rect = canvas.getBoundingClientRect();
-    return [e.x - rect.left, e.y - rect.top];
+    return [e.clientX - rect.left, e.clientY - rect.top];
 }
 
 /**
@@ -192,11 +192,6 @@ class OverlayCanvas {
 
     clearOverlay(): void {
         this.overlayCtx.clearRect(0, 0, this.width, this.height);
-    }
-
-    clearBackground(): void {
-        console.log(0, 0, this.width, this.height);
-        this.backgroundCtx.clearRect(0, 0, this.width, this.height);
     }
 
     /** Clear both canvases. */
@@ -270,6 +265,30 @@ class Complex {
     constructor(public re: number, public im: number) {}
 }
 
+function addListeners(element: HTMLElement, eventTypes: string[], el: EventListenerOrEventListenerObject): HTMLElement {
+    for (let et of eventTypes) {
+        element.addEventListener(et, el);
+    }
+    return element;
+}
+
+/** Convert a touch event to a mouse event. */
+function touchToMouse(mouseEventName: string, e: TouchEvent): MouseEvent {
+    e.preventDefault();
+    e.stopPropagation();
+    if (mouseEventName == "mouseup") {
+        return new MouseEvent(mouseEventName, {
+            clientX: e.changedTouches[0].clientX,
+            clientY: e.changedTouches[0].clientY
+        });
+    } else {
+        return new MouseEvent(mouseEventName, {
+            clientX: e.touches[0].clientX,
+            clientY: e.touches[0].clientY
+        });
+    }
+}
+
 function main(): void {
 
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
@@ -311,30 +330,42 @@ function main(): void {
         draw();
     });
 
-    canvases.overlay.addEventListener("mousedown", e => {
-        const [x, y] = getMouseCoords(canvases.overlay, e);
+    addListeners(canvases.overlay, ["mousedown", "touchstart"], e => {
+        let me = e as MouseEvent;
+        if (e instanceof TouchEvent) {
+            me = touchToMouse("mousedown", e);
+        }
+        const [x, y] = getMouseCoords(canvases.overlay, me);
         mouseDownCanvasX = x;
         mouseDownCanvasY = y;
         dragging = true;
     });
 
-    canvases.overlay.addEventListener("mouseup", e => {
+    addListeners(canvases.overlay, ["mouseup", "touchend"], e => {
+        let me = e as MouseEvent;
+        if (e instanceof TouchEvent) {
+            me = touchToMouse("mouseup", e);
+        }
         dragging = false;
         const x0 = mouseDownCanvasX / renderState.scale + renderState.topLeft.re;
         const y0 = mouseDownCanvasY / -renderState.scale + renderState.topLeft.im;
         renderState.topLeft.re = x0;
         renderState.topLeft.im = y0;
         // now use the mouseup coordinates to figure out new scale
-        const [x, _] = getMouseCoords(canvases.overlay, e);
+        const [x, _] = getMouseCoords(canvases.overlay, me);
         renderState.scale = canvasW / ((x - mouseDownCanvasX) / renderState.scale);
         canvases.clearOverlay();
         draw();
     });
 
-    canvases.overlay.addEventListener("mousemove", e => {
+    addListeners(canvases.overlay, ["mousemove", "touchmove"], e => {
+        let me = e as MouseEvent;
+        if (e instanceof TouchEvent) {
+            me = touchToMouse("mousemove", e);
+        }
         if (dragging) {
             canvases.clearOverlay();
-            const [x, y] = getMouseCoords(canvases.overlay, e);
+            const [x, y] = getMouseCoords(canvases.overlay, me);
             const c = canvases.overlayCtx;
             c.strokeStyle = "grey";
             c.setLineDash([6]);
