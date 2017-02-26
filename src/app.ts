@@ -145,6 +145,15 @@ class OverlayCanvas {
     readonly backgroundCtx: CanvasRenderingContext2D;
     readonly overlayCtx: CanvasRenderingContext2D;
 
+    constructor(width: number, height: number) {
+        this.width = width;
+        this.height = height;
+        this.background = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 1);
+        this.overlay = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 2);
+        this.backgroundCtx = OverlayCanvas.get2DContext(this.background);
+        this.overlayCtx = OverlayCanvas.get2DContext(this.overlay);
+    }
+
     private static get2DContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
         const ctx = canvas.getContext("2d");
         if (!ctx) {
@@ -178,16 +187,14 @@ class OverlayCanvas {
         return OverlayCanvas.disableScrollbars(canvas);
     }
 
-    constructor(width: number, height: number) {
-        this.background = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 1);
-        this.overlay = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 2);
-        this.backgroundCtx = OverlayCanvas.get2DContext(this.background);
-        this.overlayCtx = OverlayCanvas.get2DContext(this.overlay);
-    }
-
     appendTo(element: Element): void {
         element.appendChild(this.background);
         element.appendChild(this.overlay);
+    }
+
+    /** Erase everything on the overlay canvas. */
+    clearOverlay(): void {
+        this.overlayCtx.clearRect(0, 0, this.width, this.height);
     }
 
 }
@@ -217,30 +224,47 @@ function main(): void {
 
     let mouseDownCanvasX = 0;
     let mouseDownCanvasY = 0;
+    let dragging = false;
 
     const draw = () => {
-        console.log(canvasW, canvasH, pixelsPerUnit, topLeftX, topLeftY);
+        console.log(topLeftX, topLeftY, pixelsPerUnit);
         drawMandlebrot(canvases.backgroundCtx, pixelsPerUnit, topLeftX, topLeftY);
+        window.location.hash = `#x=${topLeftX}&y=${topLeftY}&scale=${pixelsPerUnit}`;
     };
 
     canvases.overlay.addEventListener("mousedown", e => {
         const [x, y] = getMouseCoords(canvases.overlay, e);
         mouseDownCanvasX = x;
         mouseDownCanvasY = y;
+        dragging = true;
     });
 
     canvases.overlay.addEventListener("mouseup", e => {
+        dragging = false;
         const x0 = mouseDownCanvasX / pixelsPerUnit + topLeftX;
         const y0 = mouseDownCanvasY / -pixelsPerUnit + topLeftY;
-        console.log("clicked down on", x0, y0, "(complex plane coordinates)");
         topLeftX = x0;
         topLeftY = y0;
         // now use the mouseup coordinates to figure out new scale
         const [x, y] = getMouseCoords(canvases.overlay, e);
-        console.log("mouseup", mouseDownCanvasX, mouseDownCanvasY, x, y, pixelsPerUnit, (x - mouseDownCanvasX));
         pixelsPerUnit = canvasW / ((x - mouseDownCanvasX) / pixelsPerUnit);
-        console.log("new ppu", pixelsPerUnit);
+        canvases.clearOverlay();
         draw();
+    });
+
+    canvases.overlay.addEventListener("mousemove", e => {
+        if (dragging) {
+            canvases.clearOverlay();
+            const [x, y] = getMouseCoords(canvases.overlay, e);
+            const c = canvases.overlayCtx;
+            c.strokeStyle = "grey";
+            c.setLineDash([6]);
+            c.strokeRect(
+                mouseDownCanvasX,
+                mouseDownCanvasY,
+                x - mouseDownCanvasX,
+                y - mouseDownCanvasY);
+        }
     });
 
     draw();
