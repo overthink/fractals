@@ -79,9 +79,7 @@ const enum Colour {
  */
 function drawMandlebrot(
         context: CanvasRenderingContext2D,
-        scale: number,
-        topLeftX: number,
-        topLeftY: number): void {
+        renderState: RenderState): void {
     const start = Date.now();
     const canvasW = context.canvas.width;
     const canvasH = context.canvas.height;
@@ -102,15 +100,15 @@ function drawMandlebrot(
         const pixelNum  = i / 4;
         const pixelX = pixelNum % canvasW;
         const pixelY = Math.floor(pixelNum / canvasW);
-        const x0 = pixelX / scale + topLeftX;
-        const y0 = pixelY / scale - topLeftY;
+        const x0 = pixelX / renderState.scale + renderState.topLeft.re;
+        const y0 = pixelY / renderState.scale - renderState.topLeft.im;
 
         let x = 0;
         let y = 0;
 
         // any point surviving till maxIterations is in the set
         let iteration = 0;
-        let maxIterations = 10000;
+        let maxIterations = 1000;
         while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
             const xTemp = x * x - y * y + x0;
             y = 2 * x * y + y0;
@@ -192,18 +190,92 @@ class OverlayCanvas {
         element.appendChild(this.overlay);
     }
 
-    /** Erase everything on the overlay canvas. */
     clearOverlay(): void {
+        this.overlayCtx.clearRect(0, 0, this.width, this.height);
+    }
+
+    clearBackground(): void {
+        console.log(0, 0, this.width, this.height);
+        this.backgroundCtx.clearRect(0, 0, this.width, this.height);
+    }
+
+    /** Clear both canvases. */
+    clear(): void {
+        this.backgroundCtx.clearRect(0, 0, this.width, this.height);
         this.overlayCtx.clearRect(0, 0, this.width, this.height);
     }
 
 }
 
+interface RenderState {
+    /** Top left corner of the view onto the complex plane. */
+    topLeft: Complex,
+    /** scale is pixels per unit on the complex plane. */
+    scale: number
+}
+
+function clearRenderState(): void {
+    window.location.href = "";
+}
+
+function saveRenderState(state: RenderState): void {
+    window.location.href = `#re=${state.topLeft.re}&im=${state.topLeft.im}&scale=${state.scale}`;
+}
+
+function loadRenderState(): RenderState | undefined {
+    const fragment = window.location.hash;
+    if (fragment.trim().length == 0) {
+        return;
+    }
+    const parsed = fragment
+        .replace(/^#/, "")
+        .split("&")
+        .map(x => x.split("="))
+        .reduce((acc, [k, v]) => {
+            acc[k] = parseFloat(v);
+            return acc;
+        }, {} as {[k: string]: number});
+    return {
+        scale: parsed["scale"],
+        topLeft: {re: parsed["re"], im: parsed["im"]}
+    }
+}
+
+/** Create a reset zoom button, add to DOM and return it. */
+function addResetButton(margin: Margin): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.innerText = "Reset zoom";
+    const s = button.style;
+    s.position = "fixed";
+    s.left = `${margin.left}px`;
+    s.bottom = `15px`;
+    document.body.appendChild(button);
+    return button;
+}
+
+/** Returns a render state that shows the full Mandelbrot set. */
+function defaultRenderState(canvasW: number, canvasH: number): RenderState {
+    const scale = getInitialScale(canvasW, canvasH);
+    return {
+        scale: scale,
+        topLeft: {
+            re: -2.5 - (canvasW / scale - (1 - -2.5)) / 2,
+            im: 1 + (canvasH / scale - (1 - -1)) / 2
+        }
+    }
+}
+
+/** Very basic complex number class. */
+class Complex {
+    constructor(public re: number, public im: number) {}
+}
+
 function main(): void {
+
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
     const borderThickness = 1;
     const [canvasW, canvasH] = calcCanvasDims(margin, borderThickness);
-    const containerElement = styleCanvasContainer(
+    const container: Element = styleCanvasContainer(
         getCanvasContainer(),
         canvasW,
         canvasH,
@@ -211,26 +283,33 @@ function main(): void {
         `${borderThickness}px solid #333`);
 
     const canvases = new OverlayCanvas(canvasW, canvasH);
-    canvases.appendTo(containerElement);
+    canvases.appendTo(container);
 
-    // "unit" being distance 1 on complex plane
-    let pixelsPerUnit: number = getInitialScale(canvasW, canvasH);
-
-    // ugliness to centre our view of the complex plane (re [-2.5, 1], im
-    // [-1, 1]) in the canvas
-    let topLeftX = -2.5 - (canvasW / pixelsPerUnit - (1 - -2.5)) / 2;
-    let topLeftY = 1 + (canvasH / pixelsPerUnit - (1 - -1)) / 2;
-
-
+    const renderState = loadRenderState() || defaultRenderState(canvasW, canvasH);
     let mouseDownCanvasX = 0;
     let mouseDownCanvasY = 0;
     let dragging = false;
 
     const draw = () => {
-        console.log(topLeftX, topLeftY, pixelsPerUnit);
-        drawMandlebrot(canvases.backgroundCtx, pixelsPerUnit, topLeftX, topLeftY);
-        window.location.hash = `#x=${topLeftX}&y=${topLeftY}&scale=${pixelsPerUnit}`;
+        if (!(isFinite(renderState.scale) &&
+            isFinite(renderState.topLeft.re) &&
+            isFinite(renderState.topLeft.im))) {
+            return;
+        }
+        window.document.body.style.cursor = "progress";
+        canvases.clear();
+        // Wait a couple ms before big number crunching to let the browser update UI.
+        setTimeout(() => {
+            drawMandlebrot(canvases.backgroundCtx, renderState);
+            window.document.body.style.cursor = "default";
+            saveRenderState(renderState);
+        }, 50);
     };
+
+    addResetButton(margin).addEventListener("click", () => {
+        clearRenderState();
+        draw();
+    });
 
     canvases.overlay.addEventListener("mousedown", e => {
         const [x, y] = getMouseCoords(canvases.overlay, e);
@@ -241,13 +320,13 @@ function main(): void {
 
     canvases.overlay.addEventListener("mouseup", e => {
         dragging = false;
-        const x0 = mouseDownCanvasX / pixelsPerUnit + topLeftX;
-        const y0 = mouseDownCanvasY / -pixelsPerUnit + topLeftY;
-        topLeftX = x0;
-        topLeftY = y0;
+        const x0 = mouseDownCanvasX / renderState.scale + renderState.topLeft.re;
+        const y0 = mouseDownCanvasY / -renderState.scale + renderState.topLeft.im;
+        renderState.topLeft.re = x0;
+        renderState.topLeft.im = y0;
         // now use the mouseup coordinates to figure out new scale
-        const [x, y] = getMouseCoords(canvases.overlay, e);
-        pixelsPerUnit = canvasW / ((x - mouseDownCanvasX) / pixelsPerUnit);
+        const [x, _] = getMouseCoords(canvases.overlay, e);
+        renderState.scale = canvasW / ((x - mouseDownCanvasX) / renderState.scale);
         canvases.clearOverlay();
         draw();
     });
