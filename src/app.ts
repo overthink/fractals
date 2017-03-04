@@ -108,7 +108,7 @@ function drawMandlebrot(
 
         // any point surviving till maxIterations is in the set
         let iteration = 0;
-        let maxIterations = 10000;
+        let maxIterations = 1000;
         while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
             const xTemp = x * x - y * y + x0;
             y = 2 * x * y + y0;
@@ -131,23 +131,43 @@ function getMouseCoords(canvas: HTMLCanvasElement, e: MouseEvent): [number, numb
 }
 
 /**
+ * Make sure the canvas' drawingbuffer size matches the size the canvas is
+ * actually being displayed at by the browser.
+ * Good ref: https://webgl2fundamentals.org/webgl/lessons/webgl-resizing-the-canvas.html
+ */
+function resize(canvas: HTMLCanvasElement): void {
+    const cssToRealPixels: number = window.devicePixelRatio || 1;
+
+    // Lookup the size the browser is displaying the canvas in CSS pixels
+    // and compute a size needed to make our drawingbuffer match it in
+    // device pixels.
+    const displayWidth  = Math.floor(canvas.clientWidth  * cssToRealPixels);
+    const displayHeight = Math.floor(canvas.clientHeight * cssToRealPixels);
+
+    // Check if the canvas is not the same size.
+    if (canvas.width  !== displayWidth ||
+        canvas.height !== displayHeight) {
+
+        // Make the canvas the same size
+        canvas.width  = displayWidth;
+        canvas.height = displayHeight;
+    }
+}
+
+/**
  * A canvas element with a second transparent canvas element (the "overlay")
  * positioned right on top of it.
  */
 class OverlayCanvas {
 
-    readonly width: number;
-    readonly height: number;
     readonly background: HTMLCanvasElement;
     readonly overlay: HTMLCanvasElement;
     readonly backgroundCtx: CanvasRenderingContext2D;
     readonly overlayCtx: CanvasRenderingContext2D;
 
-    constructor(width: number, height: number) {
-        this.width = width;
-        this.height = height;
-        this.background = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 1);
-        this.overlay = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(width, height), 2);
+    constructor() {
+        this.background = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(), 1);
+        this.overlay = OverlayCanvas.styleCanvas(OverlayCanvas.createCanvas(), 2);
         this.backgroundCtx = OverlayCanvas.get2DContext(this.background);
         this.overlayCtx = OverlayCanvas.get2DContext(this.overlay);
     }
@@ -177,12 +197,19 @@ class OverlayCanvas {
         return canvas;
     }
 
-    private static createCanvas(width: number, height: number): HTMLCanvasElement {
+    private static createCanvas(): HTMLCanvasElement {
         const canvas = document.createElement("canvas");
-        // Don't use CSS to set width/height, see: http://stackoverflow.com/a/12862952/69689
-        canvas.setAttribute("width", width.toString());
-        canvas.setAttribute("height", height.toString());
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
         return OverlayCanvas.disableScrollbars(canvas);
+    }
+
+    width(): number {
+        return this.background.clientWidth;
+    }
+
+    height(): number {
+        return this.background.clientHeight;
     }
 
     appendTo(element: Element): void {
@@ -191,13 +218,20 @@ class OverlayCanvas {
     }
 
     clearOverlay(): void {
-        this.overlayCtx.clearRect(0, 0, this.width, this.height);
+        console.log(0, 0, this.width, this.height);
+        this.overlayCtx.clearRect(0, 0, this.width(), this.height());
     }
 
     /** Clear both canvases. */
     clear(): void {
-        this.backgroundCtx.clearRect(0, 0, this.width, this.height);
-        this.overlayCtx.clearRect(0, 0, this.width, this.height);
+        this.backgroundCtx.clearRect(0, 0, this.width(), this.height());
+        this.overlayCtx.clearRect(0, 0, this.width(), this.height());
+    }
+
+    /** Set canvas width and height based on its container and CSS. */
+    resize(): void {
+        resize(this.background);
+        resize(this.overlay);
     }
 
 }
@@ -301,8 +335,9 @@ function main(): void {
         margin,
         `${borderThickness}px solid #333`);
 
-    const canvases = new OverlayCanvas(canvasW, canvasH);
+    const canvases = new OverlayCanvas();
     canvases.appendTo(container);
+    canvases.resize();
 
     const renderState = loadRenderState() || defaultRenderState(canvasW, canvasH);
     let mouseDownCanvasX = 0;
@@ -317,6 +352,7 @@ function main(): void {
         }
         window.document.body.style.cursor = "progress";
         canvases.clear();
+        canvases.resize();
         // Wait a couple ms before big number crunching to let the browser update UI.
         setTimeout(() => {
             drawMandlebrot(canvases.backgroundCtx, renderState);
