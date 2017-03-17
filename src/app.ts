@@ -123,8 +123,11 @@ function drawMandlebrot(
 
         let colour = [0, 0, 0];
         if (iteration < maxIterations) {
-            colour = palette(iteration / maxIterations);
+            // fractional escape count - http://stackoverflow.com/a/25200192/69689
+            const ec = iteration + 1 - Math.log(Math.log(Math.sqrt(x * x + y * y))) / Math.log(2);
+            colour = palette(ec / maxIterations);
         }
+
         data[i + Colour.R] = colour[0];
         data[i + Colour.G] = colour[1];
         data[i + Colour.B] = colour[2];
@@ -135,7 +138,7 @@ function drawMandlebrot(
     for (let i = 0; i < histogram.length; i += 1) {
         total += histogram[i];
     }
-    console.log(histogram);
+    // console.log(histogram);
 
     context.putImageData(imageData, 0, 0);
     console.log(`drawMandlebrot() ran in ${Date.now() - start} ms`);
@@ -399,11 +402,7 @@ function main(): void {
         // percent is the fraction of max iterations that were used for the
         // pixel we want to colour
         const palette: Palette = (percent: number) => {
-            if (percent < 0 || percent > 1) {
-                throw Error("palette argument must be between 0.0 and 1.0 inclusive");
-            }
-
-            return hslToRgb(percent * 5 + 0.6, 1, 0.5);
+            return hslToRgb(percent * 0.25 + 0.58, 1, 0.5);
         };
 
         // Wait a couple ms before big number crunching to let the browser update UI.
