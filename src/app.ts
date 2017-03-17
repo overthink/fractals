@@ -72,14 +72,16 @@ const enum Colour {
     R = 0, G, B, A
 }
 
+type RGB = [number, number, number];
+type Palette = (numIterations: number) => RGB
+
 /**
- * Draw a view of the Mandlebrot set starting from (topLeftX, topLeftY) on the
- * complex plane. 'scale' determines the number of pixels per unit of length
- * on the complex plane.
+ * Draw a view of the Mandlebrot based on the given RenderState.
  */
 function drawMandlebrot(
         context: CanvasRenderingContext2D,
-        renderState: RenderState): void {
+        renderState: RenderState,
+        palette: Palette): void {
     const start = Date.now();
     const canvasW = context.canvas.width;
     const canvasH = context.canvas.height;
@@ -87,15 +89,18 @@ function drawMandlebrot(
     const data: Uint8ClampedArray = imageData.data;
     console.log(`Need to draw ${data.length / 4} pixels`);
 
-    // let z[0] = 0 and c be an arbitrary complex number
-    // then c is in the Mandelbrot set if |z[n]| remains bounded for
-    // arbitrarily large n in z[n+1] = z[n]^2 + c
+    // let z[0] = 0 and c be an arbitrary complex number then c is in the
+    // Mandelbrot set if |z[n]| remains bounded for arbitrarily large n in
+    // z[n+1] = z[n]^2 + c. i.e. points that DO NOT "escape" to infinity after
+    // iteration are IN the set.
 
     // differently, P[c] is a complex polynomial (fn):
     // P[c](z) = z^2 + c (think of c as x,y coords on a canvas)
     // c is in the set if the sequence P[c](0), P[c](P[c](0)),
     // P[c](P[c](P[c](0))), ... remains bounded in absolute value.
+    const maxIterations = 255;
 
+    const histogram: number[] = [];
     for (let i = 0; i < data.length; i += 4) {
         const pixelNum  = i / 4;
         const pixelX = pixelNum % canvasW;
@@ -108,19 +113,30 @@ function drawMandlebrot(
 
         // any point surviving till maxIterations is in the set
         let iteration = 0;
-        let maxIterations = 1000;
         while (x * x + y * y < 2 * 2 && iteration < maxIterations) {
             const xTemp = x * x - y * y + x0;
             y = 2 * x * y + y0;
             x = xTemp;
             iteration++;
         }
+        histogram[iteration] = (histogram[iteration] || 0) + 1;
 
-        data[i + Colour.R] = 0;
-        data[i + Colour.G] = 0;
-        data[i + Colour.B] = iteration % 255; //iteration == maxIterations ? 255 : 0;
+        let colour = [0, 0, 0];
+        if (iteration < maxIterations) {
+            colour = palette(iteration / maxIterations);
+        }
+        data[i + Colour.R] = colour[0];
+        data[i + Colour.G] = colour[1];
+        data[i + Colour.B] = colour[2];
         data[i + Colour.A] = 255;
     }
+
+    let total = 0;
+    for (let i = 0; i < histogram.length; i += 1) {
+        total += histogram[i];
+    }
+    console.log(histogram);
+
     context.putImageData(imageData, 0, 0);
     console.log(`drawMandlebrot() ran in ${Date.now() - start} ms`);
 }
@@ -218,7 +234,6 @@ class OverlayCanvas {
     }
 
     clearOverlay(): void {
-        console.log(0, 0, this.width, this.height);
         this.overlayCtx.clearRect(0, 0, this.width(), this.height());
     }
 
@@ -323,6 +338,32 @@ function touchToMouse(mouseEventName: string, e: TouchEvent): MouseEvent {
     }
 }
 
+// http://stackoverflow.com/a/9493060/69689
+function hue2rgb(p: number, q: number, t: number): number {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+}
+
+// http://stackoverflow.com/a/9493060/69689
+// h, s, l are each in [0..1]
+function hslToRgb(h: number, s: number, l: number): RGB {
+    let r, g, b;
+    if (s == 0) {
+        r = g = b = l; // achromatic
+    } else {
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
 function main(): void {
 
     const margin = {top: 50, right: 50, bottom: 50, left: 50};
@@ -353,9 +394,21 @@ function main(): void {
         window.document.body.style.cursor = "progress";
         canvases.clear();
         canvases.resize();
+
+
+        // percent is the fraction of max iterations that were used for the
+        // pixel we want to colour
+        const palette: Palette = (percent: number) => {
+            if (percent < 0 || percent > 1) {
+                throw Error("palette argument must be between 0.0 and 1.0 inclusive");
+            }
+
+            return hslToRgb(percent * 5 + 0.6, 1, 0.5);
+        };
+
         // Wait a couple ms before big number crunching to let the browser update UI.
         setTimeout(() => {
-            drawMandlebrot(canvases.backgroundCtx, renderState);
+            drawMandlebrot(canvases.backgroundCtx, renderState, palette);
             window.document.body.style.cursor = "default";
             saveRenderState(renderState);
         }, 50);
